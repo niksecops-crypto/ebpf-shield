@@ -1,0 +1,16 @@
+[Unit]
+Description=Ebpf-Shield Network Obfuscator
+After=network.target
+
+[Service]
+Type=simple
+# Change 'eth0' to your target interface or use an environment variable
+ExecStart=/usr/local/bin/ebpf-shield eth0
+Restart=always
+RestartSec=5
+# Ebpf-Shield requires root/CAP_BPF to load eBPF programs
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
