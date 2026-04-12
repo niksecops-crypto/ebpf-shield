@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"log"
 	"net"
 	"os"
@@ -54,9 +55,7 @@ func main() {
 	// Block a specific IP as an example (e.g. 1.2.3.4)
 	ipToBlock := net.ParseIP("1.2.3.4").To4()
 	if ipToBlock != nil {
-		var ipUint32 uint32
-		// Big-endian conversion (network byte order)
-		ipUint32 = uint32(ipToBlock[0]) | uint32(ipToBlock[1])<<8 | uint32(ipToBlock[2])<<16 | uint32(ipToBlock[3])<<24
+		ipUint32 := binary.LittleEndian.Uint32(ipToBlock)
 		
 		err := objs.BlacklistMap.Put(&ipUint32, &ipUint32)
 		if err != nil {
@@ -69,8 +68,7 @@ func main() {
 	// Set trusted IP to allow proxy access (e.g. 192.168.1.1)
 	trustedIP := net.ParseIP("192.168.1.1").To4()
 	if trustedIP != nil {
-		var ipUint32 uint32
-		ipUint32 = uint32(trustedIP[0]) | uint32(trustedIP[1])<<8 | uint32(trustedIP[2])<<16 | uint32(trustedIP[3])<<24
+		ipUint32 := binary.LittleEndian.Uint32(trustedIP)
 		
 		index := uint32(0)
 		err := objs.SettingsMap.Put(&index, &ipUint32)
