@@ -8,17 +8,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ProtectedPort describes one TCP port that should only be accessible from
+// specific source IPs. All other traffic to this port is silently dropped.
 type ProtectedPort struct {
-	Port      uint16 `yaml:"port"`
-	TrustedIP string `yaml:"trusted_ip"`
+	Port       uint16   `yaml:"port"`
+	TrustedIPs []string `yaml:"trusted_ips"`
 }
 
+// Config is the top-level configuration for ebpf-shield.
 type Config struct {
 	Interface      string          `yaml:"interface"`
 	Blacklist      []string        `yaml:"blacklist"`
 	ProtectedPorts []ProtectedPort `yaml:"protected_ports"`
 }
 
+// Load reads and validates a shield.yaml configuration file.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -52,14 +56,19 @@ func (c *Config) validate() error {
 		if pp.Port == 0 {
 			return fmt.Errorf("protected_ports entry has zero port")
 		}
-		if net.ParseIP(pp.TrustedIP) == nil {
-			return fmt.Errorf("protected_ports: invalid trusted_ip %q", pp.TrustedIP)
+		if len(pp.TrustedIPs) == 0 {
+			return fmt.Errorf("protected_ports[%d]: trusted_ips must not be empty", pp.Port)
+		}
+		for _, ip := range pp.TrustedIPs {
+			if net.ParseIP(ip) == nil {
+				return fmt.Errorf("protected_ports[%d]: invalid trusted_ip %q", pp.Port, ip)
+			}
 		}
 	}
 	return nil
 }
 
-// BlacklistIPs expands CIDR entries and returns individual IPv4 addresses.
+// BlacklistIPs expands CIDR ranges and returns individual IPv4 addresses.
 func (c *Config) BlacklistIPs() ([]net.IP, error) {
 	var ips []net.IP
 	for _, entry := range c.Blacklist {

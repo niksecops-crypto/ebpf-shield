@@ -1,16 +1,32 @@
 # ebpf-shield configuration
-# All IP addresses use CIDR or plain IPv4 notation.
+# Reload at runtime by sending SIGHUP: kill -HUP $(pidof shield)
 
 interface: eth0
 
-# IPs that will be silently dropped at XDP layer (no ICMP/TCP response)
+# blacklist: source IPs/CIDRs dropped at XDP layer (no ICMP/TCP response).
+# Supports individual IPv4 addresses and CIDR ranges.
 blacklist:
   - 192.0.2.1
   - 203.0.113.0/24
 
-# Ports accessible only to trusted IPs; all other sources are dropped
+# protected_ports: TCP ports accessible only from the listed trusted_ips.
+# Any source IP not in trusted_ips is silently dropped, hiding the port
+# from scanners and unauthorized clients.
+#
+# Each entry supports multiple trusted IPs — useful for bastion hosts,
+# monitoring systems, or any set of fixed-IP management clients.
 protected_ports:
   - port: 8080
-    trusted_ip: 10.0.0.1
+    trusted_ips:
+      - 10.0.0.1
+      - 10.0.0.2
+
   - port: 9090
-    trusted_ip: 10.0.0.1
+    trusted_ips:
+      - 10.0.0.1
+
+  - port: 6379
+    trusted_ips:
+      - 10.0.0.1
+      - 10.0.0.3
+      - 10.0.0.4

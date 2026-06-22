@@ -18,6 +18,14 @@ import (
 
 var version = "dev"
 
+// portIPKey mirrors struct port_ip_key in bpf/shield.c.
+// Memory layout must match exactly: dst_port (u16), pad (u16), src_ip (u32).
+type portIPKey struct {
+	DstPort uint16
+	Pad     uint16
+	SrcIP   uint32
+}
+
 func main() {
 	configPath := flag.String("config", "config/shield.yaml", "Path to shield.yaml")
 	showVer := flag.Bool("version", false, "Print version and exit")
@@ -36,6 +44,13 @@ func main() {
 		slog.Error("failed to load config", "path", *configPath, "error", err)
 		os.Exit(1)
 	}
+
+	slog.Info("ebpf-shield starting",
+		"version", version,
+		"interface", cfg.Interface,
+		"blacklist_entries", len(cfg.Blacklist),
+		"protected_ports", len(cfg.ProtectedPorts),
+	)
 
 	if err := syscall.Setrlimit(syscall.RLIMIT_MEMLOCK, &syscall.Rlimit{
 		Cur: syscall.RLIM_INFINITY,
@@ -62,40 +77,54 @@ func main() {
 		Interface: iface.Index,
 	})
 	if err != nil {
-		slog.Error("failed to attach XDP", "interface", cfg.Interface, "error", err)
+		slog.Error("failed to attach XDP program", "interface", cfg.Interface, "error", err)
 		os.Exit(1)
 	}
 	defer l.Close()
 
-	slog.Info("ebpf-shield attached", "interface", cfg.Interface, "version", version)
+	slog.Info("XDP program attached", "interface", cfg.Interface)
 
+	// Populate blacklist_map
 	blockedIPs, err := cfg.BlacklistIPs()
 	if err != nil {
-		slog.Error("failed to expand blacklist", "error", err)
+		slog.Error("failed to expand blacklist CIDRs", "error", err)
 		os.Exit(1)
 	}
-
+	mark := uint8(1)
 	for _, ip := range blockedIPs {
-		key := binary.LittleEndian.Uint32(ip)
-		if err := objs.BlacklistMap.Put(&key, &key); err != nil {
-			slog.Warn("failed to insert blacklist IP", "ip", ip.String(), "error", err)
+		key := binary.BigEndian.Uint32(ip)
+		if err := objs.BlacklistMap.Put(&key, &mark); err != nil {
+			slog.Warn("blacklist insert failed", "ip", ip.String(), "error", err)
 		} else {
 			slog.Info("blacklisted", "ip", ip.String())
 		}
 	}
 
-	for i, pp := range cfg.ProtectedPorts {
-		trustedIP := net.ParseIP(pp.TrustedIP).To4()
-		if trustedIP == nil {
-			slog.Warn("skipping invalid trusted IP", "entry", i)
+	// Populate protected_ports_map and port_acl_map
+	for _, pp := range cfg.ProtectedPorts {
+		portNBO := htons(pp.Port)
+		if err := objs.ProtectedPortsMap.Put(&portNBO, &mark); err != nil {
+			slog.Warn("failed to register protected port", "port", pp.Port, "error", err)
 			continue
 		}
-		ipUint32 := binary.LittleEndian.Uint32(trustedIP)
-		idx := uint32(i)
-		if err := objs.SettingsMap.Put(&idx, &ipUint32); err != nil {
-			slog.Warn("failed to set trusted IP", "port", pp.Port, "error", err)
-		} else {
-			slog.Info("protected port configured", "port", pp.Port, "trusted_ip", pp.TrustedIP)
+		slog.Info("port protected", "port", pp.Port, "trusted_ips", len(pp.TrustedIPs))
+
+		for _, ipStr := range pp.TrustedIPs {
+			ip := net.ParseIP(ipStr).To4()
+			if ip == nil {
+				slog.Warn("skipping invalid trusted IP", "ip", ipStr)
+				continue
+			}
+			key := portIPKey{
+				DstPort: portNBO,
+				Pad:     0,
+				SrcIP:   binary.BigEndian.Uint32(ip),
+			}
+			if err := objs.PortAclMap.Put(&key, &mark); err != nil {
+				slog.Warn("ACL insert failed", "port", pp.Port, "ip", ipStr, "error", err)
+			} else {
+				slog.Info("ACL entry added", "port", pp.Port, "trusted_ip", ipStr)
+			}
 		}
 	}
 
@@ -104,4 +133,9 @@ func main() {
 	<-sig
 
 	slog.Info("ebpf-shield shutting down")
+}
+
+// htons converts a uint16 from host to network byte order.
+func htons(v uint16) uint16 {
+	return (v<<8)&0xff00 | v>>8
 }
