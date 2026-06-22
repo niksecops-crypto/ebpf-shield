@@ -2,87 +2,106 @@ package main
 
 import (
 	"encoding/binary"
+	"flag"
+	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/niksecops-crypto/ebpf-shield/pkg/bpf"
+	"github.com/niksecops-crypto/ebpf-shield/pkg/config"
 )
 
+var version = "dev"
+
 func main() {
-	// Remove RLIMIT_MEMLOCK (required for older kernels)
+	configPath := flag.String("config", "config/shield.yaml", "Path to shield.yaml")
+	showVer := flag.Bool("version", false, "Print version and exit")
+	flag.Parse()
+
+	if *showVer {
+		fmt.Println(version)
+		os.Exit(0)
+	}
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		slog.Error("failed to load config", "path", *configPath, "error", err)
+		os.Exit(1)
+	}
+
 	if err := syscall.Setrlimit(syscall.RLIMIT_MEMLOCK, &syscall.Rlimit{
 		Cur: syscall.RLIM_INFINITY,
 		Max: syscall.RLIM_INFINITY,
 	}); err != nil {
-		log.Fatalf("Failed to remove RLIMIT_MEMLOCK: %v", err)
+		log.Fatalf("failed to remove RLIMIT_MEMLOCK: %v", err)
 	}
 
-	// Load BPF programs and maps
 	objs := bpf.ShieldObjects{}
 	if err := bpf.LoadShieldObjects(&objs, nil); err != nil {
-		log.Fatalf("Failed to load BPF objects: %v", err)
+		slog.Error("failed to load BPF objects", "error", err)
+		os.Exit(1)
 	}
 	defer objs.Close()
 
-	// Find the network interface
-	ifaceName := "eth0" // Default to eth0
-	if len(os.Args) > 1 {
-		ifaceName = os.Args[1]
-	}
-	iface, err := net.InterfaceByName(ifaceName)
+	iface, err := net.InterfaceByName(cfg.Interface)
 	if err != nil {
-		log.Fatalf("Failed to get interface %s: %v", ifaceName, err)
+		slog.Error("interface not found", "interface", cfg.Interface, "error", err)
+		os.Exit(1)
 	}
 
-	// Attach XDP program to the interface
 	l, err := link.AttachXDP(link.XDPOptions{
 		Program:   objs.XdpShieldFunc,
 		Interface: iface.Index,
 	})
 	if err != nil {
-		log.Fatalf("Failed to attach XDP program: %v", err)
+		slog.Error("failed to attach XDP", "interface", cfg.Interface, "error", err)
+		os.Exit(1)
 	}
 	defer l.Close()
 
-	log.Printf("Ebpf-Shield attached to interface %s", ifaceName)
-	log.Printf("Filtering and obfuscating traffic...")
+	slog.Info("ebpf-shield attached", "interface", cfg.Interface, "version", version)
 
-	// Block a specific IP as an example (e.g. 1.2.3.4)
-	ipToBlock := net.ParseIP("1.2.3.4").To4()
-	if ipToBlock != nil {
-		ipUint32 := binary.LittleEndian.Uint32(ipToBlock)
-		
-		err := objs.BlacklistMap.Put(&ipUint32, &ipUint32)
-		if err != nil {
-			log.Printf("Warning: Failed to block IP %s: %v", ipToBlock, err)
+	blockedIPs, err := cfg.BlacklistIPs()
+	if err != nil {
+		slog.Error("failed to expand blacklist", "error", err)
+		os.Exit(1)
+	}
+
+	for _, ip := range blockedIPs {
+		key := binary.LittleEndian.Uint32(ip)
+		if err := objs.BlacklistMap.Put(&key, &key); err != nil {
+			slog.Warn("failed to insert blacklist IP", "ip", ip.String(), "error", err)
 		} else {
-			log.Printf("Blacklisted IP: %s", ipToBlock)
+			slog.Info("blacklisted", "ip", ip.String())
 		}
 	}
 
-	// Set trusted IP to allow proxy access (e.g. 192.168.1.1)
-	trustedIP := net.ParseIP("192.168.1.1").To4()
-	if trustedIP != nil {
+	for i, pp := range cfg.ProtectedPorts {
+		trustedIP := net.ParseIP(pp.TrustedIP).To4()
+		if trustedIP == nil {
+			slog.Warn("skipping invalid trusted IP", "entry", i)
+			continue
+		}
 		ipUint32 := binary.LittleEndian.Uint32(trustedIP)
-		
-		index := uint32(0)
-		err := objs.SettingsMap.Put(&index, &ipUint32)
-		if err != nil {
-			log.Printf("Warning: Failed to set trusted IP: %v", err)
+		idx := uint32(i)
+		if err := objs.SettingsMap.Put(&idx, &ipUint32); err != nil {
+			slog.Warn("failed to set trusted IP", "port", pp.Port, "error", err)
 		} else {
-			log.Printf("Trusted IP for proxy (8080): %s", trustedIP)
+			slog.Info("protected port configured", "port", pp.Port, "trusted_ip", pp.TrustedIP)
 		}
 	}
 
-	// Wait for termination signal
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 
-	log.Println("Ebpf-Shield shutting down...")
+	slog.Info("ebpf-shield shutting down")
 }

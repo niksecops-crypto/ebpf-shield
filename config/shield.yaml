@@ -1,0 +1,16 @@
+# ebpf-shield configuration
+# All IP addresses use CIDR or plain IPv4 notation.
+
+interface: eth0
+
+# IPs that will be silently dropped at XDP layer (no ICMP/TCP response)
+blacklist:
+  - 192.0.2.1
+  - 203.0.113.0/24
+
+# Ports accessible only to trusted IPs; all other sources are dropped
+protected_ports:
+  - port: 8080
+    trusted_ip: 10.0.0.1
+  - port: 9090
+    trusted_ip: 10.0.0.1
