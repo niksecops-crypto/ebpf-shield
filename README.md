@@ -71,9 +71,14 @@ make generate
 ```
 
 ## Production Notes
-- Requires `CAP_BPF` or `root`.
-- Best performance achieved with Native XDP supported drivers.
-- Monitoring via `journalctl -u ebpf-shield -f`.
+
+- Requires `CAP_BPF` + `CAP_NET_ADMIN` (or root).
+- Best performance with Native XDP drivers (Intel ixgbe/i40e, Mellanox mlx4/mlx5, virtio_net).
+- Monitoring via `journalctl -u ebpf-shield -f` or configure log aggregation to parse JSON output.
+
+## Documentation
+
+- [Production Deployment Guide](docs/production-guide.md) — configuration reference, commercial use cases, systemd setup, performance benchmarks, troubleshooting
 
 ---
-*By [niksecops-crypto](https://github.com/niksecops-crypto)*
+*Maintained by [niksecops-crypto](https://github.com/niksecops-crypto)*
