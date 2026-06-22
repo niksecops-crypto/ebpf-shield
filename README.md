@@ -1,5 +1,12 @@
 # Ebpf-Shield: Advanced Network Obfuscator & Shield
 
+[![CI](https://github.com/niksecops-crypto/ebpf-shield/actions/workflows/ci.yml/badge.svg)](https://github.com/niksecops-crypto/ebpf-shield/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/niksecops-crypto/ebpf-shield)](https://goreportcard.com/report/github.com/niksecops-crypto/ebpf-shield)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org/)
+[![Docker](https://img.shields.io/badge/GHCR-ghcr.io-blue?logo=docker)](https://github.com/niksecops-crypto/ebpf-shield/pkgs/container/ebpf-shield)
+[![Kernel](https://img.shields.io/badge/Kernel-5.8+-orange?logo=linux)](https://www.kernel.org/)
+
 Ebpf-Shield is a low-level network security tool leveraging eBPF/XDP for kernel-level packet filtering and traffic obfuscation. It allows for high-performance drop/pass logic before the packet even reaches the standard Linux networking stack.
 
 ## Overview
