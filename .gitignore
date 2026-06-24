@@ -12,7 +12,6 @@ pkg/bpf/shield_bpfeb.o
 
 # Go
 vendor/
-go.sum
 
 # OS
 .DS_Store
