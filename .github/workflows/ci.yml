@@ -44,12 +44,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang llvm libbpf-dev linux-libc-dev linux-headers-$(uname -r) linux-headers-generic gcc-multilib
       - name: Generate BPF bindings
-        run: make generate
-      - name: Verify generated files
         run: |
-          ls -la pkg/bpf/
-          head -30 pkg/bpf/shield_bpfel.go
-          go build ./pkg/bpf/
+          go clean -cache
+          make generate
       - name: Build binary
         run: make build
 
