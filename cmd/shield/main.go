@@ -18,14 +18,6 @@ import (
 
 var version = "dev"
 
-// portIPKey mirrors struct port_ip_key in bpf/shield.c.
-// Memory layout must match exactly: dst_port (u16), pad (u16), src_ip (u32).
-type portIPKey struct {
-	DstPort uint16
-	Pad     uint16
-	SrcIP   uint32
-}
-
 func main() {
 	configPath := flag.String("config", "config/shield.yaml", "Path to shield.yaml")
 	showVer := flag.Bool("version", false, "Print version and exit")
@@ -115,7 +107,7 @@ func main() {
 				slog.Warn("skipping invalid trusted IP", "ip", ipStr)
 				continue
 			}
-			key := portIPKey{
+			key := bpf.ShieldPortIpKey{
 				DstPort: portNBO,
 				Pad:     0,
 				SrcIP:   binary.BigEndian.Uint32(ip),
