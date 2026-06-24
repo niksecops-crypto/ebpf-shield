@@ -1,0 +1,20 @@
+# Binaries
+ebpf-shield
+*.exe
+*.o
+*.so
+
+# Generated BPF files
+pkg/bpf/shield_bpfel.go
+pkg/bpf/shield_bpfeb.go
+pkg/bpf/shield_bpfel.o
+pkg/bpf/shield_bpfeb.o
+
+# Go
+vendor/
+
+# OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

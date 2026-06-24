@@ -1,0 +1,84 @@
+# Ebpf-Shield: Advanced Network Obfuscator & Shield
+
+[![CI](https://github.com/niksecops-crypto/ebpf-shield/actions/workflows/ci.yml/badge.svg)](https://github.com/niksecops-crypto/ebpf-shield/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/niksecops-crypto/ebpf-shield)](https://goreportcard.com/report/github.com/niksecops-crypto/ebpf-shield)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org/)
+[![Docker](https://img.shields.io/badge/GHCR-ghcr.io-blue?logo=docker)](https://github.com/niksecops-crypto/ebpf-shield/pkgs/container/ebpf-shield)
+[![Kernel](https://img.shields.io/badge/Kernel-5.8+-orange?logo=linux)](https://www.kernel.org/)
+
+Ebpf-Shield is a low-level network security tool leveraging eBPF/XDP for kernel-level packet filtering and traffic obfuscation. It allows for high-performance drop/pass logic before the packet even reaches the standard Linux networking stack.
+
+## Overview
+
+Traditional firewalls (iptables/nftables) operate later in the packet processing cycle. Ebpf-Shield uses XDP (eXpress Data Path) to intercept traffic at the driver level, providing:
+- Minimum CPU overhead per packet.
+- Protection against port scanning by silently dropping unauthorized traffic ("stealth mode").
+- Dynamic IP blacklisting via eBPF Hash Maps.
+- Zero-Trust port protection for critical services (e.g., hiding port 8080).
+
+## Architecture
+
+- **Kernel Space**: C-based XDP program ([shield.c](bpf/shield.c)) inspecting Ethernet frames.
+- **User Space**: Go-based controller ([main.go](cmd/shield/main.go)) managing BPF objects and map updates.
+
+### How it works
+1. Incoming packet is parsed by the XDP hook.
+2. Source IP is looked up in the `blacklist_map`. If present, `XDP_DROP`.
+3. If destination port is protected (e.g., 8080), the source IP is verified against `settings_map`. Non-matching packets are dropped without ICMP/TCP response.
+4. Authorized traffic proceeds via `XDP_PASS`.
+
+---
+
+## Ebpf-Shield: Сетевой обфускатор на базе eBPF
+
+Ebpf-Shield — это инструмент для обеспечения сетевой безопасности, использующий eBPF/XDP для фильтрации трафика на уровне ядра. Позволяет реализовать логику обработки пакетов до их попадания в стандартный сетевой стек Linux.
+
+## Основные возможности
+
+- **Минимальные задержки**: Обработка на уровне драйвера (XDP).
+- **Обфускация сервисов**: Скрытие портов от сканеров (пакеты отбрасываются без ответа).
+- **Динамические списки**: Управление блокировками через BPF Maps без перезапуска правил.
+- **Zero-Trust**: Доступ к защищенным портам только для доверенных IP.
+
+## Использование (Usage)
+
+### Build & Install
+```bash
+# Ubuntu/Debian dependencies
+sudo apt-get update && sudo apt-get install -y clang llvm linux-libc-dev libbpf-dev make
+
+# Build everything
+make all
+
+# Full deployment (including systemd service)
+sudo ./scripts/deploy.sh
+```
+
+### Run
+```bash
+sudo ./ebpf-shield eth0
+```
+
+---
+
+## Development
+
+The project uses `cilium/ebpf` for Go bindings. 
+To regenerate BPF objects:
+```bash
+make generate
+```
+
+## Production Notes
+
+- Requires `CAP_BPF` + `CAP_NET_ADMIN` (or root).
+- Best performance with Native XDP drivers (Intel ixgbe/i40e, Mellanox mlx4/mlx5, virtio_net).
+- Monitoring via `journalctl -u ebpf-shield -f` or configure log aggregation to parse JSON output.
+
+## Documentation
+
+- [Production Deployment Guide](docs/production-guide.md) — configuration reference, commercial use cases, systemd setup, performance benchmarks, troubleshooting
+
+---
+*Maintained by [niksecops-crypto](https://github.com/niksecops-crypto)*
