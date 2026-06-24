@@ -58,12 +58,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	objs := bpf.ShieldObjects{}
-	if err := bpf.LoadShieldObjects(&objs, nil); err != nil {
+	handles, err := bpf.LoadShield()
+	if err != nil {
 		slog.Error("failed to load BPF objects", "error", err)
 		os.Exit(1)
 	}
-	defer objs.Close()
+	defer handles.Close()
 
 	iface, err := net.InterfaceByName(cfg.Interface)
 	if err != nil {
@@ -72,7 +72,7 @@ func main() {
 	}
 
 	l, err := link.AttachXDP(link.XDPOptions{
-		Program:   objs.XdpShieldFunc,
+		Program:   handles.XdpShieldFunc,
 		Interface: iface.Index,
 	})
 	if err != nil {
@@ -92,7 +92,7 @@ func main() {
 	mark := uint8(1)
 	for _, ip := range blockedIPs {
 		key := binary.BigEndian.Uint32(ip)
-		if err := objs.BlacklistMap.Put(&key, &mark); err != nil {
+		if err := handles.BlacklistMap.Put(&key, &mark); err != nil {
 			slog.Warn("blacklist insert failed", "ip", ip.String(), "error", err)
 		} else {
 			slog.Info("blacklisted", "ip", ip.String())
@@ -102,7 +102,7 @@ func main() {
 	// Populate protected_ports_map and port_acl_map
 	for _, pp := range cfg.ProtectedPorts {
 		portNBO := htons(pp.Port)
-		if err := objs.ProtectedPortsMap.Put(&portNBO, &mark); err != nil {
+		if err := handles.ProtectedPortsMap.Put(&portNBO, &mark); err != nil {
 			slog.Warn("failed to register protected port", "port", pp.Port, "error", err)
 			continue
 		}
@@ -119,7 +119,7 @@ func main() {
 				Pad:     0,
 				SrcIP:   binary.BigEndian.Uint32(ip),
 			}
-			if err := objs.PortAclMap.Put(&key, &mark); err != nil {
+			if err := handles.PortAclMap.Put(&key, &mark); err != nil {
 				slog.Warn("ACL insert failed", "port", pp.Port, "ip", ipStr, "error", err)
 			} else {
 				slog.Info("ACL entry added", "port", pp.Port, "trusted_ip", ipStr)
