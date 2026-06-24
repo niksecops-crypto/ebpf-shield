@@ -42,7 +42,7 @@ jobs:
       - name: Install eBPF build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang llvm libbpf-dev linux-headers-$(uname -r)
+          sudo apt-get install -y clang llvm libbpf-dev linux-libc-dev linux-headers-$(uname -r) linux-headers-generic
       - name: Generate BPF bindings
         run: make generate
       - name: Build binary
