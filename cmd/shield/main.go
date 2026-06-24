@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
-	"log"
 	"log/slog"
 	"net"
 	"os"
@@ -12,11 +11,20 @@ import (
 	"syscall"
 
 	"github.com/cilium/ebpf/link"
+	"github.com/cilium/ebpf/rlimit"
 	"github.com/niksecops-crypto/ebpf-shield/pkg/bpf"
 	"github.com/niksecops-crypto/ebpf-shield/pkg/config"
 )
 
 var version = "dev"
+
+// portIPKey mirrors struct port_ip_key in bpf/shield.c.
+// Layout: dst_port (u16) + pad (u16) + src_ip (u32) = 8 bytes.
+type portIPKey struct {
+	DstPort uint16
+	Pad     uint16
+	SrcIP   uint32
+}
 
 func main() {
 	configPath := flag.String("config", "config/shield.yaml", "Path to shield.yaml")
@@ -44,11 +52,10 @@ func main() {
 		"protected_ports", len(cfg.ProtectedPorts),
 	)
 
-	if err := syscall.Setrlimit(syscall.RLIMIT_MEMLOCK, &syscall.Rlimit{
-		Cur: syscall.RLIM_INFINITY,
-		Max: syscall.RLIM_INFINITY,
-	}); err != nil {
-		log.Fatalf("failed to remove RLIMIT_MEMLOCK: %v", err)
+	// Required for kernels < 5.11; no-op on modern kernels with CAP_BPF.
+	if err := rlimit.RemoveMemlock(); err != nil {
+		slog.Error("failed to remove RLIMIT_MEMLOCK", "error", err)
+		os.Exit(1)
 	}
 
 	objs := bpf.ShieldObjects{}
@@ -107,7 +114,7 @@ func main() {
 				slog.Warn("skipping invalid trusted IP", "ip", ipStr)
 				continue
 			}
-			key := bpf.ShieldPortIpKey{
+			key := portIPKey{
 				DstPort: portNBO,
 				Pad:     0,
 				SrcIP:   binary.BigEndian.Uint32(ip),
