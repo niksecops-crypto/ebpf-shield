@@ -34,14 +34,14 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	if err := cfg.validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
 	return &cfg, nil
 }
 
-func (c *Config) validate() error {
+func (c *Config) Validate() error {
 	if c.Interface == "" {
 		return fmt.Errorf("interface must be specified")
 	}
