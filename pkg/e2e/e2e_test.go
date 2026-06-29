@@ -703,8 +703,8 @@ protected_ports:
 
 	// Scenario 3: Concurrent Connections
 	t.Run("Scenario3_ConcurrentConnections", func(t *testing.T) {
-		// Re-run the listeners on port 8080
-		c := exec.Command("nsenter", "--net=/run/netns/ns-shield", "nc", "-lk", "10.99.0.1", "8080")
+		// Re-run the listeners on port 8080 using python for a larger backlog to handle concurrent connections reliably
+		c := exec.Command("nsenter", "--net=/run/netns/ns-shield", "python3", "-c", "import socket, time; s=socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('10.99.0.1', 8080)); s.listen(50); time.sleep(10)")
 		if err := c.Start(); err != nil {
 			t.Fatalf("Failed to restart TCP server on 8080: %v", err)
 		}
