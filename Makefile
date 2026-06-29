@@ -10,7 +10,7 @@ generate:
 
 build:
 	@echo "Building Go binary..."
-	go build -o $(BINARY_NAME) ./cmd/shield/
+	go build -buildvcs=false -o $(BINARY_NAME) ./cmd/shield/
 
 clean:
 	@echo "Cleaning up..."

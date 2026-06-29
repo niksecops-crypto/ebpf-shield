@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/niksecops-crypto/ebpf-shield/pkg/bpf"
 	"github.com/niksecops-crypto/ebpf-shield/pkg/config"
+	"gopkg.in/yaml.v3"
 )
 
 var version = "dev"
@@ -39,9 +41,56 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	cfg, err := config.Load(*configPath)
-	if err != nil {
-		slog.Error("failed to load config", "path", *configPath, "error", err)
+	// Determine if config flag was explicitly set
+	isConfigSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "config" {
+			isConfigSet = true
+		}
+	})
+
+	var cfg config.Config
+	actualConfigPath := *configPath
+	configExists := true
+
+	if _, err := os.Stat(actualConfigPath); os.IsNotExist(err) {
+		configExists = false
+		if !isConfigSet {
+			// Fallback: check /etc/ebpf-shield/shield.yaml
+			fallbackPath := "/etc/ebpf-shield/shield.yaml"
+			if _, errF := os.Stat(fallbackPath); errF == nil {
+				actualConfigPath = fallbackPath
+				configExists = true
+			}
+		}
+	}
+
+	if configExists {
+		data, err := os.ReadFile(actualConfigPath)
+		if err != nil {
+			slog.Error("failed to read config", "path", actualConfigPath, "error", err)
+			os.Exit(1)
+		}
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			slog.Error("failed to parse config", "path", actualConfigPath, "error", err)
+			os.Exit(1)
+		}
+	} else {
+		if isConfigSet {
+			slog.Error("config file not found", "path", actualConfigPath)
+			os.Exit(1)
+		}
+		slog.Info("no config file loaded, proceeding with defaults", "path", actualConfigPath)
+	}
+
+	// Overwrite interface if positional arg is provided and interface not specified in config
+	if cfg.Interface == "" && flag.NArg() > 0 {
+		cfg.Interface = flag.Arg(0)
+	}
+
+	// Validate config
+	if err := cfg.Validate(); err != nil {
+		slog.Error("invalid configuration", "error", err)
 		os.Exit(1)
 	}
 
@@ -71,6 +120,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Ensure bpffs is mounted on /sys/fs/bpf
+	if err := os.MkdirAll("/sys/fs/bpf", 0750); err != nil {
+		slog.Warn("failed to create /sys/fs/bpf", "error", err)
+	}
+	if err := syscall.Mount("bpf", "/sys/fs/bpf", "bpf", 0, ""); err != nil && err != syscall.EBUSY {
+		slog.Warn("failed to mount bpffs on /sys/fs/bpf", "error", err)
+	}
+
+	const pinPath = "/sys/fs/bpf/ebpf-shield-link"
+	if _, err := os.Stat(pinPath); err == nil {
+		slog.Info("stale pin found, removing", "path", pinPath)
+		os.Remove(pinPath)
+	}
+
+	// Detach any existing XDP program on the interface to avoid "device or resource busy"
+	// if the daemon was killed ungracefully.
+	_ = exec.Command("ip", "link", "set", "dev", cfg.Interface, "xdp", "off").Run()
+
 	l, err := link.AttachXDP(link.XDPOptions{
 		Program:   handles.XdpShieldFunc,
 		Interface: iface.Index,
@@ -81,7 +148,13 @@ func main() {
 	}
 	defer l.Close()
 
-	slog.Info("XDP program attached", "interface", cfg.Interface)
+	if err := l.Pin(pinPath); err != nil {
+		slog.Error("failed to pin XDP link", "path", pinPath, "error", err)
+		os.Exit(1)
+	}
+	defer os.Remove(pinPath)
+
+	slog.Info("XDP program attached and pinned", "interface", cfg.Interface, "path", pinPath)
 
 	// Populate blacklist_map
 	blockedIPs, err := cfg.BlacklistIPs()
@@ -91,7 +164,7 @@ func main() {
 	}
 	mark := uint8(1)
 	for _, ip := range blockedIPs {
-		key := binary.BigEndian.Uint32(ip)
+		key := binary.LittleEndian.Uint32(ip)
 		if err := handles.BlacklistMap.Put(&key, &mark); err != nil {
 			slog.Warn("blacklist insert failed", "ip", ip.String(), "error", err)
 		} else {
@@ -117,7 +190,7 @@ func main() {
 			key := portIPKey{
 				DstPort: portNBO,
 				Pad:     0,
-				SrcIP:   binary.BigEndian.Uint32(ip),
+				SrcIP:   binary.LittleEndian.Uint32(ip),
 			}
 			if err := handles.PortAclMap.Put(&key, &mark); err != nil {
 				slog.Warn("ACL insert failed", "port", pp.Port, "ip", ipStr, "error", err)
